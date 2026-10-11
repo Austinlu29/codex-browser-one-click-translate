@@ -8,6 +8,7 @@ const root = path.join(__dirname, '..');
 const contentSource = fs.readFileSync(path.join(root, 'page-translator/content.js'), 'utf8');
 const workerSource = fs.readFileSync(path.join(root, 'page-translator/background.js'), 'utf8');
 const engineSource = fs.readFileSync(path.join(root, 'page-translator/local-translator.js'), 'utf8');
+const languagesSource = fs.readFileSync(path.join(root, 'page-translator/languages.js'), 'utf8');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate) {
   const deadline = Date.now() + 4000;
@@ -20,6 +21,8 @@ async function until(predicate) {
 function page(html, send, beforeLoad, afterEngine) {
   const dom = new JSDOM(html, { url: 'https://example.com/', runScripts: 'outside-only' });
   const listeners = [];
+  const settingListeners = [];
+  const preferences = {};
   const calls = [];
   dom.window.chrome = {
     runtime: { onMessage: { addListener(fn) { listeners.push(fn); } },
@@ -28,7 +31,12 @@ function page(html, send, beforeLoad, afterEngine) {
         if (message.type === 'page-command') return command(message.command);
         return send(message);
       } },
-    storage: { local: { get: async defaults => defaults }, onChanged: { addListener() {} } }
+    storage: { local: { get: async defaults => ({ ...defaults, ...preferences }), set: async values => {
+      const changes = Object.fromEntries(Object.entries(values).filter(([key,value]) => preferences[key] !== value)
+        .map(([key,value]) => [key,{oldValue:preferences[key],newValue:value}]));
+      Object.assign(preferences, values);
+      for (const listener of settingListeners) listener(changes);
+    } }, onChanged: { addListener(fn) { settingListeners.push(fn); } } }
   };
   function command(name) {
     let response;
@@ -36,6 +44,7 @@ function page(html, send, beforeLoad, afterEngine) {
     return response;
   }
   beforeLoad?.(dom.window.document);
+  dom.window.eval(languagesSource);
   dom.window.eval(engineSource);
   afterEngine?.(dom.window);
   dom.window.eval(contentSource);
@@ -187,6 +196,7 @@ function engine(options = {}) {
   if (options.detect) dom.window.LanguageDetector = {
     create: async () => ({ detect: async text => options.detect(text) })
   };
+  dom.window.eval(languagesSource);
   dom.window.eval(engineSource);
   if (options.create) dom.window.Translator.create = options.create;
   if (options.detectorCreate) dom.window.LanguageDetector = { create: options.detectorCreate };
@@ -422,6 +432,126 @@ test('读取偏好时取消准备，不会在迟到的偏好返回后开始下�
   assert.equal((await response).code, 'CANCELLED');
   assert.equal(created, 0);
   p.close();
+});
+
+test('默认英语转简体中文；目标语言独立创建模型和缓存', async () => {
+  const pairs = [], inferences = [];
+  const e = engine({ create: async options => {
+    const direction = options.sourceLanguage + '->' + options.targetLanguage;
+    pairs.push(direction);
+    return { translate: async text => { inferences.push(direction); return direction + ':' + text; } };
+  } });
+  await e.instance.prepare();
+  assert.equal(await e.instance.translate('Hello'), 'en->zh:Hello');
+  await e.instance.prepare('en', 'ja');
+  assert.equal(await e.instance.translate('Hello'), 'en->ja:Hello');
+  await e.instance.prepare('en', 'zh');
+  assert.equal(await e.instance.translate('Hello'), 'en->zh:Hello');
+  assert.equal(pairs.join(','), 'en->zh,en->ja');
+  assert.equal(inferences.join(','), 'en->zh,en->ja');
+  e.close();
+});
+
+test('中文页面自动检测可转外语；同语种无需调用模型', async () => {
+  const pairs = [];
+  const e = engine({ create: async options => {
+    pairs.push(options.sourceLanguage + '->' + options.targetLanguage);
+    return { translate: async () => 'Hello world' };
+  } });
+  e.dom.window.document.documentElement.lang = 'zh-CN';
+  await e.instance.prepare('auto', 'en');
+  assert.equal(await e.instance.translate('你好世界'), 'Hello world');
+  await e.instance.prepare('zh', 'zh');
+  assert.equal(await e.instance.translate('你好世界'), '你好世界');
+  assert.equal(pairs.join(','), 'zh->en');
+  e.close();
+});
+
+test('不支持的语言组合显示实际方向；失败后不能使用旧模型', async () => {
+  const e = engine({ create: async () => ({ translate: async () => '你好' }) });
+  await e.instance.prepare('en', 'zh');
+  e.dom.window.Translator.availability = async options => {
+    assert.equal(options.targetLanguage, 'ja'); return 'unavailable';
+  };
+  await assert.rejects(e.instance.prepare('fr', 'ja'), error => error.code === 'UNSUPPORTED_PAIR' && error.message.includes('法语 → 日语'));
+  await assert.rejects(e.instance.translate('Bonjour'), error => error.code === 'MODEL_REQUIRED');
+  e.close();
+});
+
+test('切换目标语言不会准备上一目标缺失的语言包', async () => {
+  const pairs = [];
+  const e = engine({ create: async options => {
+    pairs.push(options.sourceLanguage + '->' + options.targetLanguage);
+    return { translate: async () => 'translated' };
+  }, detect: async () => [{detectedLanguage:'fr',confidence:.95}] });
+  e.dom.window.Translator.availability = async options => options.sourceLanguage === 'fr' && options.targetLanguage === 'zh' ? 'downloadable' : 'available';
+  await e.instance.prepare('auto', 'zh');
+  await assert.rejects(e.instance.translate('Bonjour tout le monde'), error => error.code === 'MODEL_REQUIRED');
+  await e.instance.prepare('auto', 'ja');
+  assert.equal(pairs.join(','), 'en->zh,en->ja');
+  e.close();
+});
+
+test('网页语言选择支持中文转英文，交换后恢复原文并同步偏好', async () => {
+  const p = page('<p>你好世界</p>', translateMock);
+  await delay(0);
+  const shadow = [...p.document.querySelectorAll('div')].find(node => node.shadowRoot).shadowRoot;
+  assert.equal(shadow.querySelector('[aria-label="原文语言"]').value, 'en');
+  assert.equal(shadow.querySelector('[aria-label="目标语言"]').value, 'zh');
+  await p.dom.window.chrome.storage.local.set({sourceLanguage:'zh',targetLanguage:'en'});
+  p.command('translate');
+  await until(() => p.document.querySelector('p').textContent === '译：你好世界');
+  shadow.querySelector('.swap').click();
+  await until(() => p.document.querySelector('p').textContent === '你好世界');
+  const stored = await p.dom.window.chrome.storage.local.get({});
+  assert.equal(stored.sourceLanguage, 'en'); assert.equal(stored.targetLanguage, 'zh');
+  assert.equal(shadow.querySelector('[aria-label="目标语言"]').value, 'zh');
+  p.close();
+});
+
+test('翻译过程中修改语言会丢弃旧译文；准备期间修改会取消模型', async () => {
+  let complete;
+  const p = page('<p>Hello</p>', () => new Promise(resolve => { complete = resolve; }));
+  p.command('translate');
+  await until(() => complete !== undefined);
+  await p.dom.window.chrome.storage.local.set({targetLanguage:'fr'});
+  complete({ok:true,results:[{text:'你好'}]});
+  await delay(20);
+  assert.equal(p.document.querySelector('p').textContent, 'Hello');
+  let signal;
+  p.dom.window.Translator = { availability: async () => 'available', create: options => {
+    signal = options.signal; return new Promise(() => {});
+  } };
+  const ready = p.request({type:'translator-prepare'});
+  await until(() => signal !== undefined);
+  await p.dom.window.chrome.storage.local.set({targetLanguage:'ja'});
+  assert.equal((await ready).code, 'CANCELLED');
+  assert.equal(signal.aborted, true);
+  p.close();
+});
+
+test('扩展弹窗保存语言、交换语言并同步网页选择', async () => {
+  const html = fs.readFileSync(path.join(root, 'page-translator/popup.html'), 'utf8');
+  const dom = new JSDOM(html, {url:'https://example.com/',runScripts:'outside-only'});
+  const preferences = {}, listeners = [];
+  dom.window.chrome = {storage:{local:{get:async defaults => ({...defaults,...preferences}),set:async values => {
+    Object.assign(preferences,values);
+    for (const listener of listeners) listener(Object.fromEntries(Object.entries(values).map(([key,value]) => [key,{newValue:value}])));
+  }},onChanged:{addListener:fn => listeners.push(fn)}},tabs:{query:async () => [{id:7}]},runtime:{sendMessage:async () => ({ok:true})}};
+  dom.window.eval(languagesSource);
+  dom.window.eval(fs.readFileSync(path.join(root,'page-translator/popup.js'),'utf8'));
+  await delay(0);
+  const select = dom.window.document.querySelector('#target');
+  assert.equal(dom.window.document.querySelector('#source').value,'en');
+  assert.equal(select.value,'zh');
+  select.value = 'ja'; select.dispatchEvent(new dom.window.Event('change'));
+  await until(() => preferences.targetLanguage === 'ja');
+  await delay(0); dom.window.document.querySelector('#swap').click();
+  await until(() => preferences.sourceLanguage === 'ja' && preferences.targetLanguage === 'en');
+  await dom.window.chrome.storage.local.set({sourceLanguage:'auto',targetLanguage:'fr'});
+  assert.equal(dom.window.document.querySelector('#swap').disabled,true);
+  assert.equal(dom.window.document.querySelector('#direction').textContent,'自动检测 → 法语');
+  dom.window.close();
 });
 
 (async () => {

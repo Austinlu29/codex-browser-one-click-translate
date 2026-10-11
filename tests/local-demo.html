@@ -1,9 +1,11 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local translation test</title>
 <style>body{font:18px/1.7 system-ui,sans-serif;max-width:700px;margin:60px auto;color:#203e2e;padding:24px}button{padding:12px 18px;border:0;border-radius:9px;background:#146b47;color:white;font:inherit;cursor:pointer}.note{color:#526c5e;font-size:14px}h1{font-size:30px}</style></head>
 <body><h1>Local translation test</h1><p>Hello world</p><p>Search</p><p>Welcome to the local browser translator.</p>
-<div translate="no"><p class="note">新版 1.2.1 实测 · 自动检测不阻塞翻译 · 无 Google 翻译请求</p><button id="translate-demo">测试新版一键本地翻译</button><button id="restore-demo">测试恢复原文</button><p id="demo-status" class="note">等待测试</p></div>
+<div translate="no"><p class="note">新版 1.3.0 实测 · 自选语言 · 默认英语转简体中文</p><button id="translate-demo">测试新版一键本地翻译</button><button id="restore-demo">测试恢复原文</button><p id="demo-status" class="note">等待测试</p></div>
 <script>
 const contentListeners = [];
+const demoSettings = { sourceLanguage: 'en', targetLanguage: 'zh' };
+const settingListeners = [];
 function dispatch(message) {
   return new Promise(resolve => {
     let handled = false;
@@ -24,7 +26,10 @@ window.chrome = {
       }
     }
   },
-  storage: { local: {get: async defaults => ({...defaults,sourceLanguage:'auto'})}, onChanged:{addListener(){}} }
+  storage: { local: {get: async defaults => ({...defaults,...demoSettings}), set: async next => {
+    const changes = Object.fromEntries(Object.entries(next).filter(([key,value]) => demoSettings[key] !== value).map(([key,value]) => [key,{oldValue:demoSettings[key],newValue:value}]));
+    Object.assign(demoSettings,next); for (const listener of settingListeners) listener(changes);
+  }}, onChanged:{addListener(listener){settingListeners.push(listener);}} }
 };
 document.querySelector('#translate-demo').onclick = async () => {
   const response = await chrome.runtime.sendMessage({type:'page-command',command:'translate'});
@@ -32,4 +37,4 @@ document.querySelector('#translate-demo').onclick = async () => {
 };
 document.querySelector('#restore-demo').onclick = () => chrome.runtime.sendMessage({type:'page-command',command:'restore'});
 </script>
-<script src="/local-translator.js"></script><script src="/content.js"></script></body></html>
+<script src="/languages.js"></script><script src="/local-translator.js"></script><script src="/content.js"></script></body></html>

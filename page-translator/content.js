@@ -20,7 +20,36 @@
   let preparing = false;
   let preparation;
   let progress = '';
+  const languages = globalThis.PageLanguages;
+  let preferences = { sourceLanguage: 'en', targetLanguage: 'zh' };
+  let sourceSelect;
+  let targetSelect;
+  let swapButton;
   const local = new globalThis.PageLocalTranslator(message => { progress = message; updateUI(); });
+  function showSettings(settings) {
+    preferences = languages.settings(settings);
+    if (sourceSelect) {
+      sourceSelect.value = preferences.sourceLanguage;
+      targetSelect.value = preferences.targetLanguage;
+      swapButton.disabled = preferences.sourceLanguage === 'auto';
+    }
+  }
+  async function saveLanguages(from, to) {
+    try {
+      await chrome.storage.local.set({ sourceLanguage: from, targetLanguage: to });
+      showSettings({ sourceLanguage: from, targetLanguage: to });
+    } catch (error) { lastError = error.message; showSettings(preferences); updateUI(); }
+  }
+  chrome.storage.onChanged.addListener(changes => {
+    if (!changes.sourceLanguage && !changes.targetLanguage) return;
+    showSettings({ ...preferences,
+      ...(changes.sourceLanguage ? { sourceLanguage: changes.sourceLanguage.newValue } : {}),
+      ...(changes.targetLanguage ? { targetLanguage: changes.targetLanguage.newValue } : {}) });
+    restore();
+    // Every frame restores immediately; the top frame also invalidates pending background commands.
+    if (window.top === window) void command('restore');
+  });
+  void chrome.storage.local.get(preferences).then(showSettings).catch(() => {});
 
   function valueOf(item) {
     return item.key === '#text' ? item.node.nodeValue : item.node.getAttribute(item.key);
@@ -49,8 +78,9 @@
     if (!text || text.length > 30000) return false;
     const trimmed = text.trim();
     if (!trimmed || /^[\d\s\p{P}\p{S}]+$/u.test(trimmed) || /^https?:\/\/\S+$/i.test(trimmed)) return false;
-    // Already-Chinese text with punctuation and numbers needs no request.
-    return !/^[\p{Script=Han}\d\s\p{P}\p{S}]+$/u.test(trimmed);
+    // Chinese can be a source language; only skip it for an already-Chinese target.
+    return preferences.targetLanguage !== 'zh' || preferences.sourceLanguage === 'zh-Hant' ||
+      !/^[\p{Script=Han}\d\s\p{P}\p{S}]+$/u.test(trimmed);
   }
   function addItem(items, node, key, original) {
     if (!needsTranslation(original)) return;
@@ -137,7 +167,7 @@
     else if (running && enabled) status.textContent = `本地翻译 · 已完成 ${translatedCount} 处`;
     else if (enabled && failures) status.textContent = lastError || `${translatedCount} 处已翻译 · ${failures} 处未完成`;
     else if (enabled) status.textContent = translatedCount ? `已翻译 ${translatedCount} 处 · 新内容自动翻译` : '当前没有需要翻译的文本';
-    else status.textContent = lastError || '浏览器本地翻译 · 首次使用需下载模型';
+    else status.textContent = lastError || `${languages.label(preferences.sourceLanguage)} → ${languages.label(preferences.targetLanguage)} · 本地翻译`;
     status.title = lastError || progress;
   }
 
@@ -246,13 +276,14 @@
     progress = '';
     updateUI();
     const task = (async () => {
-      const settings = await chrome.storage.local.get({ sourceLanguage: 'auto' });
+      const settings = await chrome.storage.local.get({ sourceLanguage: 'en', targetLanguage: 'zh' });
       if (preparation !== task) {
         const error = new Error('模型准备已取消');
         error.code = 'CANCELLED';
         throw error;
       }
-      return await local.prepare(settings.sourceLanguage);
+      showSettings(settings);
+      return await local.prepare(preferences.sourceLanguage, preferences.targetLanguage);
     })().catch(error => {
       if (preparation === task && error.code !== 'CANCELLED') lastError = error.message;
       throw error;
@@ -286,14 +317,31 @@
     const style = document.createElement('style');
     style.textContent = `
       :host{color-scheme:light} *{box-sizing:border-box}
-      .panel{width:236px;padding:12px;border:1px solid #cddbd5;border-radius:14px;background:#fff;box-shadow:0 6px 30px #0002;font:13px/1.5 system-ui,sans-serif;color:#24352d}
+      .panel{width:280px;padding:12px;border:1px solid #cddbd5;border-radius:14px;background:#fff;box-shadow:0 6px 30px #0002;font:13px/1.5 system-ui,sans-serif;color:#24352d}
       .row{display:flex;gap:7px;align-items:center} button{font:inherit;cursor:pointer;border:0;border-radius:9px;padding:8px 12px}
       .main{flex:1;color:#fff;background:#146b47;font-weight:600}.main:hover{background:#0f5337}.close{background:#eef3f0;color:#52685c;padding:8px}
       .status{margin:8px 0 0;font-size:11px;color:#53665b}.retry{margin-top:7px;background:#edf5f0;color:#146b47;font-size:12px;padding:4px 8px}
       button:focus-visible{outline:3px solid #57bb95;outline-offset:2px}.mini{background:#146b47;color:#fff;border-radius:50%;width:42px;height:42px;padding:0}
+      .languages{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);gap:7px;align-items:end;margin-bottom:10px}
+      label{font-size:11px;color:#53665b}select{width:100%;margin-top:4px;padding:7px 4px;border:1px solid #cddbd5;border-radius:7px;background:#fff;color:#24352d;font:12px system-ui,sans-serif}
+      .swap{padding:0;height:32px;background:#eef3f0;color:#146b47;font-size:19px}.swap:disabled{opacity:.4;cursor:default}select:focus-visible{outline:3px solid #57bb95;outline-offset:2px}
     `;
     shadow.append(style);
     const panel = document.createElement('div'); panel.className = 'panel';
+    const selectors = document.createElement('div'); selectors.className = 'languages';
+    function languageSelect(title, auto) {
+      const label = document.createElement('label'); label.textContent = title;
+      const select = document.createElement('select'); select.setAttribute('aria-label', title);
+      languages.fill(select, auto); label.append(select);
+      return { label, select };
+    }
+    const from = languageSelect('原文语言', true), to = languageSelect('目标语言', false);
+    sourceSelect = from.select; targetSelect = to.select;
+    swapButton = document.createElement('button'); swapButton.className = 'swap'; swapButton.textContent = '⇄';
+    swapButton.title = '交换原文与目标语言'; swapButton.setAttribute('aria-label', '交换语言');
+    sourceSelect.onchange = targetSelect.onchange = () => void saveLanguages(sourceSelect.value, targetSelect.value);
+    swapButton.onclick = () => void saveLanguages(targetSelect.value, sourceSelect.value);
+    selectors.append(from.label, swapButton, to.label); showSettings(preferences);
     const row = document.createElement('div'); row.className = 'row';
     button = document.createElement('button'); button.className = 'main';
     button.onclick = () => void command(preparing || enabled ? 'restore' : 'translate');
@@ -304,10 +352,10 @@
     status = document.createElement('p'); status.className = 'status'; status.setAttribute('role', 'status');
     const retry = document.createElement('button'); retry.className = 'retry'; retry.textContent = '翻译 / 重试'; retry.title = '翻译尚未完成的文本';
     retry.onclick = () => void command('translate');
-    row.append(button, close); panel.append(row, status, retry); shadow.append(panel, mini);
+    row.append(button, close); panel.append(selectors, row, status, retry); shadow.append(panel, mini);
     document.documentElement.append(host);
-    const preferences = await chrome.storage.local.get({ floating: true });
-    host.hidden = !preferences.floating;
+    const floatingSettings = await chrome.storage.local.get({ floating: true });
+    host.hidden = !floatingSettings.floating;
     chrome.storage.onChanged.addListener(changes => { if (changes.floating) host.hidden = !changes.floating.newValue; });
     updateUI();
   }

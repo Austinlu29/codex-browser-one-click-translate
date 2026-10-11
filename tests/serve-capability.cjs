@@ -2,7 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 http.createServer((request, response) => {
-  if (request.url === '/local-translator.js' || request.url === '/content.js') {
+  if (['/languages.js', '/local-translator.js', '/content.js'].includes(request.url)) {
     response.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(fs.readFileSync(path.join(__dirname, '../page-translator', request.url.slice(1)))); return;
   }

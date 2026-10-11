@@ -6,7 +6,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "page-translator"
 FILES = (
-    "manifest.json", "background.js", "local-translator.js", "content.js",
+    "manifest.json", "background.js", "languages.js", "local-translator.js", "content.js",
     "popup.html", "popup.css", "popup.js",
 )
 

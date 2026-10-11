@@ -1,12 +1,7 @@
 /* Browser-provided models only. This module never sends text to a cloud service. */
 (() => {
-  const supported = new Set(['ar','bg','bn','cs','da','de','el','en','es','fi','fr','he','hi','hr','hu','id','it','ja','kn','ko','lt','mr','nl','no','pl','pt','ro','ru','sk','sl','sv','ta','te','th','tr','uk','vi','zh','zh-Hant']);
-  function normalize(value) {
-    const language = String(value || '').trim();
-    if (/^zh-(TW|HK|Hant)/i.test(language)) return 'zh-Hant';
-    const base = language.toLowerCase().split('-')[0];
-    return supported.has(base) ? base : 'en';
-  }
+  const supported = new Set(globalThis.PageLanguages.entries.map(([code]) => code));
+  const { normalize, label } = globalThis.PageLanguages;
   class LocalTranslationError extends Error {
     constructor(message, code) { super(message); this.code = code; }
   }
@@ -51,7 +46,8 @@
       this.needed = new Set();
       this.detector = null;
       this.detectorPromise = null;
-      this.source = 'auto';
+      this.source = 'en';
+      this.target = 'zh';
       this.hint = normalize(document.documentElement.lang);
       if (this.hint === 'zh') this.hint = 'en';
       this.ready = false;
@@ -73,6 +69,7 @@
     }
     cancelPreparation() {
       this.prepareVersion++;
+      this.ready = false;
       const error = new LocalTranslationError('已取消模型准备，可以重新点击翻译', 'CANCELLED');
       for (const cancel of [...this.preparationCancels]) cancel(error);
     }
@@ -96,69 +93,74 @@
     }
     createModel(source, available, options) {
       let initializing = available === 'available';
-      const label = `${source} → 中文`;
-      const initError = new LocalTranslationError(`${label}模型下载完成，但初始化超过 30 秒。请重试；仍失败时重启内置浏览器`, 'MODEL_INIT_TIMEOUT');
-      this.onProgress(initializing ? `${label}模型正在初始化…` : `正在准备 ${label}本地模型…`);
+      const pairLabel = `${label(source)} → ${label(options.targetLanguage)}`;
+      const initError = new LocalTranslationError(`${pairLabel}模型下载完成，但初始化超过 30 秒。请重试；仍失败时重启内置浏览器`, 'MODEL_INIT_TIMEOUT');
+      this.onProgress(initializing ? `${pairLabel}模型正在初始化…` : `正在准备 ${pairLabel}本地模型…`);
       return this.timed(({ signal, arm, active }) => globalThis.Translator.create({
         ...options, signal,
         monitor: monitor => monitor.addEventListener('downloadprogress', event => {
           if (!active()) return;
           if (event.loaded >= 1) {
             if (!initializing) { initializing = true; arm(this.deadlines.initialization, initError); }
-            this.onProgress(`${label}模型下载完成，正在初始化…`);
+            this.onProgress(`${pairLabel}模型下载完成，正在初始化…`);
           } else if (!initializing) {
-            this.onProgress(`${label}模型下载 ${Math.max(0, Math.min(99, Math.floor(event.loaded * 100)))}%`);
+            this.onProgress(`${pairLabel}模型下载 ${Math.max(0, Math.min(99, Math.floor(event.loaded * 100)))}%`);
           }
         })
       }), initializing ? this.deadlines.initialization : this.deadlines.download,
-      initializing ? initError : new LocalTranslationError(`${label}模型准备超过 2 分钟，请检查模型下载网络后重试`, 'MODEL_DOWNLOAD_TIMEOUT'),
+      initializing ? initError : new LocalTranslationError(`${pairLabel}模型准备超过 2 分钟，请检查模型下载网络后重试`, 'MODEL_DOWNLOAD_TIMEOUT'),
       true, translator => translator.destroy?.());
     }
-    async pair(source, allowDownload) {
-      if (source === 'zh') return null;
-      if (this.translators.has(source)) return this.translators.get(source);
+    async pair(source, allowDownload, target = this.target) {
+      if (source === target) return null;
+      const key = source + '\u0000' + target;
+      const pairLabel = `${label(source)} → ${label(target)}`;
+      if (this.translators.has(key)) return this.translators.get(key);
       const promise = (async () => {
-        const options = { sourceLanguage: source, targetLanguage: 'zh' };
+        const options = { sourceLanguage: source, targetLanguage: target };
         const available = await this.timed(() => globalThis.Translator.availability(options), this.deadlines.availability,
           new LocalTranslationError('检查本地模型状态超时，请重试', 'AVAILABILITY_TIMEOUT'), allowDownload);
-        if (available === 'unavailable') throw new LocalTranslationError(`浏览器不支持 ${source} → 中文本地翻译`, 'UNSUPPORTED_PAIR');
+        if (available === 'unavailable') throw new LocalTranslationError(`浏览器不支持 ${pairLabel}本地翻译，请选择其他语言组合`, 'UNSUPPORTED_PAIR');
         if (available !== 'available' && !allowDownload) {
-          this.needed.add(source);
-          throw new LocalTranslationError(`需要下载 ${source} → 中文模型，请再次点击网页上的“一键翻译”`, 'MODEL_REQUIRED');
+          this.needed.add(key);
+          throw new LocalTranslationError(`需要下载 ${pairLabel}模型，请再次点击网页上的“一键翻译”`, 'MODEL_REQUIRED');
         }
         try {
           const translator = await this.createModel(source, available, options);
-          this.needed.delete(source);
+          this.needed.delete(key);
           return translator;
         } catch (error) {
           if (error instanceof LocalTranslationError) throw error;
           if (error.name === 'NotAllowedError') {
-            this.needed.add(source);
+            this.needed.add(key);
             throw new LocalTranslationError('请直接点击网页左下角“一键翻译”，授权浏览器下载本地模型', 'MODEL_REQUIRED');
           }
           throw new LocalTranslationError(`本地模型加载失败：${error.message}`, 'MODEL_FAILED');
         }
       })();
-      this.translators.set(source, promise);
-      promise.catch(() => { if (this.translators.get(source) === promise) this.translators.delete(source); });
+      this.translators.set(key, promise);
+      promise.catch(() => { if (this.translators.get(key) === promise) this.translators.delete(key); });
       return promise;
     }
-    async prepare(source = 'auto') {
+    async prepare(source = 'en', target = 'zh') {
+      this.ready = false;
       if (!this.capabilities().translator) {
         throw new LocalTranslationError('当前浏览器未提供本地翻译 API，无法使用本地模式', 'UNSUPPORTED_BROWSER');
       }
       this.source = source === 'auto' ? 'auto' : normalize(source);
+      this.target = normalize(target, 'zh');
+      const selectedTarget = this.target;
       const version = ++this.prepareVersion;
       this.hint = normalize(document.documentElement.lang);
-      if (this.hint === 'zh') this.hint = 'en';
       // Detection is optional: prepare it in parallel without waiting for it to finish.
       if (this.source === 'auto') this.startDetector();
-      const sources = this.source === 'auto' ? new Set([this.hint, ...this.needed]) : new Set([this.source]);
-      await Promise.all([...sources].map(language => this.pair(language, true)));
+      const needed = [...this.needed].map(key => key.split('\u0000')).filter(([, to]) => to === selectedTarget).map(([from]) => from);
+      const sources = this.source === 'auto' ? new Set([this.hint, ...needed]) : new Set([this.source]);
+      await Promise.all([...sources].map(language => this.pair(language, true, selectedTarget)));
       if (version !== this.prepareVersion) throw new LocalTranslationError('模型准备已取消', 'CANCELLED');
       this.ready = true;
-      this.onProgress(this.source === 'auto' && !this.detector ? `本地模型已就绪，先按 ${this.hint} 翻译` : '本地模型已就绪');
-      return { ok: true, source: this.source };
+      this.onProgress(this.source === 'auto' && !this.detector ? `本地模型已就绪，先按 ${label(this.hint)} → ${label(selectedTarget)} 翻译` : `${label(this.source)} → ${label(selectedTarget)} · 本地模型已就绪`);
+      return { ok: true, source: this.source, target: selectedTarget };
     }
     async language(text) {
       if (this.source !== 'auto') return this.source;
@@ -171,12 +173,15 @@
     }
     async translate(text) {
       if (!this.ready) throw new LocalTranslationError('请先点击网页上的“一键翻译”准备本地模型', 'MODEL_REQUIRED');
+      const version = this.prepareVersion;
+      const target = this.target;
       const source = await this.language(text);
-      const key = source + '\u0000' + text;
+      if (version !== this.prepareVersion) throw new LocalTranslationError('语言设置已改变，请重新翻译', 'CANCELLED');
+      const key = source + '\u0000' + target + '\u0000' + text;
       if (this.cache.has(key)) return this.cache.get(key);
       const promise = (async () => {
-        if (source === 'zh') return text;
-        const translator = await this.pair(source, false);
+        if (source === target) return text;
+        const translator = await this.pair(source, false, target);
         const result = await this.timed(({ signal }) => translator.translate(text, { signal }), this.deadlines.translation,
           new LocalTranslationError('本地翻译超过 30 秒，请重试或指定原文语言', 'TRANSLATION_TIMEOUT'));
         if (typeof result !== 'string' || !result.trim()) throw new Error('本地模型未返回译文');
