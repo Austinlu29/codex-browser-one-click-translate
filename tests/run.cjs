@@ -25,7 +25,7 @@ function page(html, send, beforeLoad, afterEngine) {
   const preferences = {};
   const calls = [];
   dom.window.chrome = {
-    runtime: { onMessage: { addListener(fn) { listeners.push(fn); } },
+    runtime: { getURL: name => 'https://example.com/' + name, onMessage: { addListener(fn) { listeners.push(fn); } },
       async sendMessage(message) {
         calls.push(message);
         if (message.type === 'page-command') return command(message.command);

@@ -8,6 +8,7 @@ SOURCE = ROOT / "page-translator"
 FILES = (
     "manifest.json", "background.js", "languages.js", "local-translator.js", "content.js",
     "popup.html", "popup.css", "popup.js",
+    "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png",
 )
 
 

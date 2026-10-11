@@ -17,7 +17,7 @@ function dispatch(message) {
   });
 }
 window.chrome = {
-  runtime: { onMessage: { addListener(listener) {contentListeners.push(listener);} },
+  runtime: { getURL: path => '/' + path, onMessage: { addListener(listener) {contentListeners.push(listener);} },
     async sendMessage(message) {
       if (message.type === 'translate-texts') return dispatch({type:'translator-local-texts',texts:message.texts});
       if (message.type === 'page-command') {

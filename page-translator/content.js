@@ -321,7 +321,7 @@
       .row{display:flex;gap:7px;align-items:center} button{font:inherit;cursor:pointer;border:0;border-radius:9px;padding:8px 12px}
       .main{flex:1;color:#fff;background:#146b47;font-weight:600}.main:hover{background:#0f5337}.close{background:#eef3f0;color:#52685c;padding:8px}
       .status{margin:8px 0 0;font-size:11px;color:#53665b}.retry{margin-top:7px;background:#edf5f0;color:#146b47;font-size:12px;padding:4px 8px}
-      button:focus-visible{outline:3px solid #57bb95;outline-offset:2px}.mini{background:#146b47;color:#fff;border-radius:50%;width:42px;height:42px;padding:0}
+      button:focus-visible{outline:3px solid #57bb95;outline-offset:2px}.mini{background:#0866ff;color:#fff;border-radius:0;width:42px;height:42px;padding:0}.mini img{display:block;width:42px;height:42px}
       .languages{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);gap:7px;align-items:end;margin-bottom:10px}
       label{font-size:11px;color:#53665b}select{width:100%;margin-top:4px;padding:7px 4px;border:1px solid #cddbd5;border-radius:7px;background:#fff;color:#24352d;font:12px system-ui,sans-serif}
       .swap{padding:0;height:32px;background:#eef3f0;color:#146b47;font-size:19px}.swap:disabled{opacity:.4;cursor:default}select:focus-visible{outline:3px solid #57bb95;outline-offset:2px}
@@ -346,7 +346,8 @@
     button = document.createElement('button'); button.className = 'main';
     button.onclick = () => void command(preparing || enabled ? 'restore' : 'translate');
     const close = document.createElement('button'); close.className = 'close'; close.textContent = '−'; close.title = '收起翻译按钮';
-    const mini = document.createElement('button'); mini.className = 'mini'; mini.textContent = '译'; mini.title = '展开网页翻译'; mini.hidden = true;
+    const mini = document.createElement('button'); mini.className = 'mini'; mini.title = '展开网页翻译'; mini.setAttribute('aria-label', '展开网页翻译'); mini.hidden = true;
+    const miniIcon = document.createElement('img'); miniIcon.src = chrome.runtime.getURL('icons/icon-48.png'); miniIcon.alt = ''; mini.append(miniIcon);
     close.onclick = () => { panel.hidden = true; mini.hidden = false; };
     mini.onclick = () => { panel.hidden = false; mini.hidden = true; };
     status = document.createElement('p'); status.className = 'status'; status.setAttribute('role', 'status');
