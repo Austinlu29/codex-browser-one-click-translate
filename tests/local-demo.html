@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local translation test</title>
+<style>body{font:18px/1.7 system-ui,sans-serif;max-width:700px;margin:60px auto;color:#203e2e;padding:24px}button{padding:12px 18px;border:0;border-radius:9px;background:#146b47;color:white;font:inherit;cursor:pointer}.note{color:#526c5e;font-size:14px}h1{font-size:30px}</style></head>
+<body><h1>Local translation test</h1><p>Hello world</p><p>Search</p><p>Welcome to the local browser translator.</p>
+<div translate="no"><p class="note">新版 1.2.1 实测 · 自动检测不阻塞翻译 · 无 Google 翻译请求</p><button id="translate-demo">测试新版一键本地翻译</button><button id="restore-demo">测试恢复原文</button><p id="demo-status" class="note">等待测试</p></div>
+<script>
+const contentListeners = [];
+function dispatch(message) {
+  return new Promise(resolve => {
+    let handled = false;
+    for (const listener of contentListeners) {
+      const pending = listener(message, {}, value => { handled = true; resolve(value); });
+      if (pending === true) handled = true;
+    }
+    if (!handled) resolve({ok:false,error:'No listener'});
+  });
+}
+window.chrome = {
+  runtime: { onMessage: { addListener(listener) {contentListeners.push(listener);} },
+    async sendMessage(message) {
+      if (message.type === 'translate-texts') return dispatch({type:'translator-local-texts',texts:message.texts});
+      if (message.type === 'page-command') {
+        if (message.command === 'translate') {const prepared = await dispatch({type:'translator-prepare'}); if (!prepared.ok) return prepared;}
+        return dispatch({type:'translator-command',command:message.command});
+      }
+    }
+  },
+  storage: { local: {get: async defaults => ({...defaults,sourceLanguage:'auto'})}, onChanged:{addListener(){}} }
+};
+document.querySelector('#translate-demo').onclick = async () => {
+  const response = await chrome.runtime.sendMessage({type:'page-command',command:'translate'});
+  document.querySelector('#demo-status').textContent = response.ok ? '本地翻译已启动' : response.error;
+};
+document.querySelector('#restore-demo').onclick = () => chrome.runtime.sendMessage({type:'page-command',command:'restore'});
+</script>
+<script src="/local-translator.js"></script><script src="/content.js"></script></body></html>

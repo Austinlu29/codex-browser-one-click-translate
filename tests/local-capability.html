@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>本地翻译能力检查</title>
+<body><h1>本地翻译能力检查</h1><pre id="result">检查中…</pre>
+<p>公开测试文本：Hello world</p><button id="test">测试英译中本地模型</button><p id="translation" role="status">尚未测试</p>
+<script src="/local-translator.js"></script>
+<script>
+document.querySelector('#result').textContent = JSON.stringify({
+  secureContext: window.isSecureContext,
+  translator: typeof window.Translator !== 'undefined',
+  languageDetector: typeof window.LanguageDetector !== 'undefined',
+  browser: navigator.userAgent
+}, null, 2);
+const localEngine = new PageLocalTranslator(message => { document.querySelector('#translation').textContent = message; });
+document.querySelector('#test').onclick = async () => {
+  try {
+    await localEngine.prepare('en');
+    document.querySelector('#translation').textContent = '本地翻译成功：' + await localEngine.translate('Hello world');
+  } catch (error) { document.querySelector('#translation').textContent = '本地翻译失败：' + error.message; }
+};
+</script></body></html>

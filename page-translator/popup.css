@@ -1,0 +1,9 @@
+:root{color-scheme:light;font:14px/1.6 system-ui,sans-serif;color:#223b2e;background:#f7faf8}
+body{width:300px;margin:0;padding:20px;box-sizing:border-box}header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.badge{display:grid;place-items:center;width:44px;height:44px;background:#146b47;color:white;border-radius:14px;font-size:23px}
+h1{font-size:17px;margin:0}header p{margin:0;color:#617267;font-size:12px}
+button{display:block;width:100%;padding:11px;margin:9px 0;border:1px solid #cfdcd4;border-radius:10px;background:white;color:#244d37;font:inherit;cursor:pointer}
+button.primary{background:#146b47;color:white;border-color:#146b47;font-weight:600}button:hover{filter:brightness(.96)}button:disabled{opacity:.6;cursor:wait}
+label{display:flex;gap:7px;align-items:center;margin-top:18px;font-size:12px}input{accent-color:#146b47}
+#status{font-size:12px;min-height:18px;color:#9b3d2b}footer{padding-top:12px;border-top:1px solid #dfe8e1;color:#6a796f;font-size:11px}
+select{width:100%;padding:8px;border:1px solid #cfdcd4;border-radius:8px;margin-top:5px;background:white;color:#244d37}

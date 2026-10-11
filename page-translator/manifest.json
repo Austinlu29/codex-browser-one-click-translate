@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "一键网页翻译",
+  "version": "1.2.1",
+  "description": "一键把内置浏览器网页翻译为简体中文，支持动态内容与恢复原文。",
+  "permissions": ["storage", "activeTab"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "一键网页翻译", "default_popup": "popup.html" },
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*"],
+    "js": ["local-translator.js", "content.js"],
+    "all_frames": true,
+    "match_about_blank": true,
+    "run_at": "document_idle"
+  }]
+}
