@@ -530,6 +530,59 @@ test('翻译过程中修改语言会丢弃旧译文；准备期间修改会取�
   p.close();
 });
 
+test('页面删除收起的悬浮按钮后自动恢复，保持语言设置且不重复挂载', async () => {
+  const p = page('<p>Hello</p>', translateMock);
+  await delay(0);
+  await p.dom.window.chrome.storage.local.set({sourceLanguage:'ja',targetLanguage:'en'});
+  const host = [...p.document.querySelectorAll('div')].find(node => node.shadowRoot);
+  const shadow = host.shadowRoot;
+  assert.equal(shadow.querySelector('.panel').hidden, true);
+  host.remove();
+  await until(() => host.isConnected);
+  assert.equal(shadow.querySelector('.mini').hidden, false);
+  assert.equal(shadow.querySelector('[aria-label="原文语言"]').value, 'ja');
+  assert.equal(p.calls.filter(message => message.type === 'translate-texts').length, 0);
+  p.document.body.append(p.document.createElement('p'));
+  await delay(20);
+  assert.equal([...p.document.querySelectorAll('div')].filter(node => node.shadowRoot).length, 1);
+  shadow.querySelector('.mini').click();
+  assert.equal(shadow.querySelector('.panel').hidden, false);
+  p.close();
+});
+
+test('整个网页根节点替换后恢复按钮；关闭悬浮显示偏好不会被恢复覆盖', async () => {
+  const p = page('<p>Hello</p>', translateMock);
+  await delay(0);
+  const host = [...p.document.querySelectorAll('div')].find(node => node.shadowRoot);
+  await p.dom.window.chrome.storage.local.set({floating:false});
+  const next = p.document.createElement('html');
+  next.innerHTML = '<head><title>Next page</title></head><body><p>New page</p></body>';
+  p.document.replaceChild(next, p.document.documentElement);
+  await until(() => host.parentNode === next);
+  assert.equal(host.hidden, true);
+  assert.equal(p.dom.window.getComputedStyle(host).display, 'none');
+  await p.dom.window.chrome.storage.local.set({floating:true});
+  assert.equal(host.hidden, false);
+  assert.equal(p.dom.window.getComputedStyle(host).display, 'block');
+  p.close();
+});
+
+test('翻译中移除面板后仍可恢复和操作，恢复原文不关闭按钮保护', async () => {
+  const p = page('<p>Hello</p>', translateMock);
+  await delay(0);
+  const host = [...p.document.querySelectorAll('div')].find(node => node.shadowRoot);
+  p.command('translate');
+  await until(() => p.document.querySelector('p').textContent === '译：Hello');
+  host.remove();
+  await until(() => host.isConnected);
+  p.command('restore');
+  assert.equal(p.document.querySelector('p').textContent, 'Hello');
+  host.remove();
+  await until(() => host.isConnected);
+  assert.equal([...p.document.querySelectorAll('div')].filter(node => node.shadowRoot).length, 1);
+  p.close();
+});
+
 test('扩展弹窗保存语言、交换语言并同步网页选择', async () => {
   const html = fs.readFileSync(path.join(root, 'page-translator/popup.html'), 'utf8');
   const dom = new JSDOM(html, {url:'https://example.com/',runScripts:'outside-only'});

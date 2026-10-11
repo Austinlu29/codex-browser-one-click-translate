@@ -312,6 +312,7 @@
     if (window.top !== window) return;
     host = document.createElement('div');
     host.setAttribute('translate', 'no');
+    host.setAttribute('data-page-local-translator', '');
     host.style.cssText = 'all:initial!important;position:fixed!important;left:14px!important;bottom:18px!important;z-index:2147483647!important';
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
@@ -355,9 +356,26 @@
     retry.onclick = () => void command('translate');
     row.append(button, close); panel.append(selectors, row, status, retry); shadow.append(panel, mini);
     document.documentElement.append(host);
+    // Page routers can replace the body or HTML children after document_idle.
+    // Keep the existing UI alive, including while translation is inactive/collapsed.
+    const hostObserver = new MutationObserver(() => {
+      const root = globalThis.document?.documentElement;
+      if (!root || host.parentNode === root) return;
+      root.append(host);
+      if (enabled) {
+        if (running) rerun = true;
+        else void scan();
+      }
+    });
+    hostObserver.observe(document, { childList: true, subtree: true });
+    function setFloatingVisible(visible) {
+      host.hidden = !visible;
+      // Inline all:initial must not override the user's hidden preference.
+      host.style.setProperty('display', visible ? 'block' : 'none', 'important');
+    }
     const floatingSettings = await chrome.storage.local.get({ floating: true });
-    host.hidden = !floatingSettings.floating;
-    chrome.storage.onChanged.addListener(changes => { if (changes.floating) host.hidden = !changes.floating.newValue; });
+    setFloatingVisible(floatingSettings.floating);
+    chrome.storage.onChanged.addListener(changes => { if (changes.floating) setFloatingVisible(changes.floating.newValue); });
     updateUI();
   }
   void mount();

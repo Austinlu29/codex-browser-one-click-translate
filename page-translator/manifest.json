@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "一键网页翻译",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "自由选择原文和目标语言，默认英语转简体中文，支持动态内容与恢复原文。",
   "permissions": ["storage", "activeTab"],
   "background": { "service_worker": "background.js" },
