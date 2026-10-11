@@ -327,7 +327,7 @@
       .swap{padding:0;height:32px;background:#eef3f0;color:#146b47;font-size:19px}.swap:disabled{opacity:.4;cursor:default}select:focus-visible{outline:3px solid #57bb95;outline-offset:2px}
     `;
     shadow.append(style);
-    const panel = document.createElement('div'); panel.className = 'panel';
+    const panel = document.createElement('div'); panel.className = 'panel'; panel.hidden = true;
     const selectors = document.createElement('div'); selectors.className = 'languages';
     function languageSelect(title, auto) {
       const label = document.createElement('label'); label.textContent = title;
@@ -346,7 +346,7 @@
     button = document.createElement('button'); button.className = 'main';
     button.onclick = () => void command(preparing || enabled ? 'restore' : 'translate');
     const close = document.createElement('button'); close.className = 'close'; close.textContent = '−'; close.title = '收起翻译按钮';
-    const mini = document.createElement('button'); mini.className = 'mini'; mini.title = '展开网页翻译'; mini.setAttribute('aria-label', '展开网页翻译'); mini.hidden = true;
+    const mini = document.createElement('button'); mini.className = 'mini'; mini.title = '展开网页翻译'; mini.setAttribute('aria-label', '展开网页翻译'); mini.hidden = false;
     const miniIcon = document.createElement('img'); miniIcon.src = chrome.runtime.getURL('icons/icon-48.png'); miniIcon.alt = ''; mini.append(miniIcon);
     close.onclick = () => { panel.hidden = true; mini.hidden = false; };
     mini.onclick = () => { panel.hidden = false; mini.hidden = true; };

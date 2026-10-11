@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-one-click-translate",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "description": "codex内置浏览器一键翻译：使用浏览器本地模型的网页翻译扩展",
   "repository": { "type": "git", "url": "https://github.com/Austinlu29/codex-browser-one-click-translate.git" },
